@@ -51,6 +51,24 @@ function inboxKey(number: number, repo: string): string {
   return `${repo}#${number}`;
 }
 
+export function hasUserReviewed(number: number, repo: string, githubUser: string): boolean {
+  try {
+    const json = execFileSync(
+      "gh",
+      ["pr", "view", String(number), "-R", repo, "--json", "reviews"],
+      { encoding: "utf-8", timeout: 15_000 },
+    ).trim();
+    const { reviews } = JSON.parse(json) as {
+      reviews: Array<{ author: { login: string }; state: string }>;
+    };
+    return reviews.some(
+      (r) => r.author.login.toLowerCase() === githubUser.toLowerCase(),
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function fetchReviewRequests(githubUser: string): RawSearchResult[] {
   const json = execFileSync(
     "gh",
@@ -89,6 +107,10 @@ export function pollReviewInbox(config: ShepherdConfig): void {
 
       const key = inboxKey(pr.number, pr.repository.nameWithOwner);
       if (notifiedKeys.has(key)) continue;
+      if (hasUserReviewed(pr.number, pr.repository.nameWithOwner, config.reviewInbox.githubUser!)) {
+        log(`Skipping PR #${pr.number} (${pr.repository.nameWithOwner}) — already reviewed`);
+        continue;
+      }
 
       const assignment: ReviewAssignment = {
         number: pr.number,
