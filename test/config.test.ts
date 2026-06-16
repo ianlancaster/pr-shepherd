@@ -119,6 +119,7 @@ describe("config", () => {
           notifyPane: null,
           ignoreRepos: [],
           ignoreDrafts: true,
+          maxAgeDays: 5,
         },
       }),
     ).toThrowError("reviewInbox.githubUser is required");
@@ -134,6 +135,7 @@ describe("config", () => {
           notifyPane: null,
           ignoreRepos: [],
           ignoreDrafts: true,
+          maxAgeDays: 5,
         },
       }),
     ).toThrowError("notifyAgent or notifyPane");

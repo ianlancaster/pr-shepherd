@@ -133,5 +133,6 @@ export type ShepherdConfig = {
     notifyPane: string | null;
     ignoreRepos: string[];
     ignoreDrafts: boolean;
+    maxAgeDays: number;
   };
 };

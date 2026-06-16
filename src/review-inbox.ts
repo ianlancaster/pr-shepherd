@@ -11,6 +11,7 @@ type RawSearchResult = {
   title: string;
   url: string;
   isDraft: boolean;
+  updatedAt: string;
 };
 
 function inboxPath(dataDir: string): string {
@@ -59,7 +60,7 @@ export function fetchReviewRequests(githubUser: string): RawSearchResult[] {
       `--review-requested=${githubUser}`,
       "--state=open",
       "--json",
-      "number,repository,title,url,isDraft",
+      "number,repository,title,url,isDraft,updatedAt",
       "--limit",
       "50",
     ],
@@ -78,9 +79,13 @@ export function pollReviewInbox(config: ShepherdConfig): void {
 
     let newAssignments: ReviewAssignment[] = [];
 
+    const maxAgeMs = config.reviewInbox.maxAgeDays * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - maxAgeMs;
+
     for (const pr of results) {
       if (config.reviewInbox.ignoreDrafts && pr.isDraft) continue;
       if (config.reviewInbox.ignoreRepos.includes(pr.repository.nameWithOwner)) continue;
+      if (new Date(pr.updatedAt).getTime() < cutoff) continue;
 
       const key = inboxKey(pr.number, pr.repository.nameWithOwner);
       if (notifiedKeys.has(key)) continue;

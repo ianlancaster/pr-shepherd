@@ -45,6 +45,7 @@ const DEFAULTS: ShepherdConfig = {
     notifyPane: null,
     ignoreRepos: [],
     ignoreDrafts: true,
+    maxAgeDays: 5,
   },
 };
 
