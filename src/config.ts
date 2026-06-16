@@ -12,6 +12,7 @@ const DEFAULTS: ShepherdConfig = {
 
   github: {
     defaultRepo: null,
+    authorUsername: null,
   },
 
   reviews: {
@@ -27,6 +28,7 @@ const DEFAULTS: ShepherdConfig = {
   notifications: {
     webhookUrl: null,
     channel: null,
+    notifyAgent: null,
     onMerge: true,
     onCIFailure: true,
     onStale: true,
@@ -107,6 +109,10 @@ function applyEnvOverrides(config: ShepherdConfig): ShepherdConfig {
   if (env.PR_SHEPHERD_DRY_RUN) config.dryRun = env.PR_SHEPHERD_DRY_RUN === "true";
   if (env.PR_SHEPHERD_DEFAULT_REPO)
     config.github.defaultRepo = env.PR_SHEPHERD_DEFAULT_REPO;
+  if (env.PR_SHEPHERD_AUTHOR_USERNAME)
+    config.github.authorUsername = env.PR_SHEPHERD_AUTHOR_USERNAME;
+  if (env.PR_SHEPHERD_NOTIFY_AGENT)
+    config.notifications.notifyAgent = env.PR_SHEPHERD_NOTIFY_AGENT;
   if (env.PR_SHEPHERD_REVIEW_INBOX_USER)
     config.reviewInbox.githubUser = env.PR_SHEPHERD_REVIEW_INBOX_USER;
   if (env.PR_SHEPHERD_REVIEW_INBOX_AGENT)
@@ -132,6 +138,10 @@ function validate(config: ShepherdConfig): string[] {
     errors.push(
       `mergeStrategy must be one of: ${[...VALID_MERGE_STRATEGIES].join(", ")}`,
     );
+  if (!config.github.authorUsername)
+    errors.push("github.authorUsername is required — set it in config or PR_SHEPHERD_AUTHOR_USERNAME");
+  if (!config.notifications.notifyAgent)
+    errors.push("notifications.notifyAgent is required — the agent to send PR issues to");
   if (config.reviewInbox.enabled && !config.reviewInbox.githubUser)
     errors.push(
       "reviewInbox.githubUser is required when reviewInbox is enabled",

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { notifyShepherdPane } from "./notifications.js";
+import { sendToAgent } from "./notifications.js";
 import { appendEvent } from "./events.js";
 import type { ShepherdConfig, ReviewAssignment, PREventRecord } from "./types.js";
 
@@ -87,7 +87,7 @@ export function fetchReviewRequests(githubUser: string): RawSearchResult[] {
   return JSON.parse(json) as RawSearchResult[];
 }
 
-export function pollReviewInbox(config: ShepherdConfig): void {
+export async function pollReviewInbox(config: ShepherdConfig): Promise<void> {
   if (!config.reviewInbox.enabled || !config.reviewInbox.githubUser) return;
 
   try {
@@ -134,7 +134,7 @@ export function pollReviewInbox(config: ShepherdConfig): void {
       const message = formatReviewAssignmentMessage(assignment);
 
       if (!config.dryRun) {
-        notifyReviewAssignment(config, message);
+        await notifyReviewAssignment(config, message);
       }
 
       log(`Notified: PR #${assignment.number} (${assignment.repo}) — ${assignment.title}`);
@@ -164,59 +164,16 @@ export function pollReviewInbox(config: ShepherdConfig): void {
   }
 }
 
-function notifyReviewAssignment(config: ShepherdConfig, message: string): void {
-  if (config.reviewInbox.notifyAgent && config.agent.conductorUrl) {
-    sendReviewViaConductor(
-      config.agent.conductorUrl,
-      config.reviewInbox.notifyAgent,
-      message,
-    ).catch((err) => {
-      log(`Failed to notify agent via conductor: ${(err as Error).message}`);
-      if (config.reviewInbox.notifyPane) {
-        notifyPane(config.reviewInbox.notifyPane, message);
-      }
-    });
+async function notifyReviewAssignment(config: ShepherdConfig, message: string): Promise<void> {
+  const agent = config.reviewInbox.notifyAgent ?? config.notifications.notifyAgent;
+  if (!agent) {
+    log("No notify agent configured for review inbox");
     return;
   }
-
-  if (config.reviewInbox.notifyPane) {
-    notifyPane(config.reviewInbox.notifyPane, message);
-    return;
-  }
-}
-
-function notifyPane(pane: string, message: string): void {
   try {
-    notifyShepherdPane(pane, message);
+    await sendToAgent(config, agent, message);
   } catch (err) {
-    log(`Failed to notify pane ${pane}: ${(err as Error).message}`);
-  }
-}
-
-async function sendReviewViaConductor(
-  conductorUrl: string,
-  targetAgent: string,
-  message: string,
-): Promise<void> {
-  const url = `${conductorUrl}/mcp/pr-shepherd`;
-  const body = {
-    jsonrpc: "2.0",
-    id: Date.now(),
-    method: "tools/call",
-    params: {
-      name: "send_to_agent",
-      arguments: { codename: targetAgent, message },
-    },
-  };
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Conductor send failed: ${response.status} ${response.statusText}`);
+    log(`Failed to notify ${agent}: ${(err as Error).message}`);
   }
 }
 

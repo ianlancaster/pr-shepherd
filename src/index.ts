@@ -2,18 +2,17 @@
 
 import { Command } from "commander";
 import { loadConfig } from "./config.js";
-import { startDaemon } from "./daemon.js";
-import { addPR, readTracking, removePR } from "./tracking.js";
+import { startDaemon, discoverAuthoredPRs } from "./daemon.js";
 import { readEvents, readEventsForPR } from "./events.js";
+import { readCache } from "./state-cache.js";
 import { readInbox } from "./review-inbox.js";
-import type { TrackedPR } from "./types.js";
 
 const program = new Command();
 
 program
   .name("pr-shepherd")
   .description("Automated PR lifecycle management for AI coding agents")
-  .version("0.1.0");
+  .version("0.2.0");
 
 program
   .command("start")
@@ -21,94 +20,39 @@ program
   .option("-c, --config <path>", "Path to shepherd.config.json")
   .option("--dry-run", "Log actions without executing them")
   .option("--interval <seconds>", "Poll interval in seconds", parseInt)
-  .action((opts) => {
+  .action(async (opts) => {
     const overrides: Record<string, unknown> = {};
     if (opts.dryRun) overrides.dryRun = true;
     if (opts.interval) overrides.pollIntervalSeconds = opts.interval;
 
     const config = loadConfig(opts.config, overrides);
-    startDaemon(config);
+    await startDaemon(config);
   });
 
 program
-  .command("add <url>")
-  .description("Track a PR by URL (e.g. https://github.com/owner/repo/pull/123)")
-  .option("-w, --worker <name>", "Worker agent codename or tmux pane name")
-  .option("-c, --config <path>", "Path to shepherd.config.json")
-  .option("--channel <channel>", "Chat channel for notifications")
-  .action((url: string, opts) => {
-    const config = loadConfig(opts.config);
-    const parsed = parsePRUrl(url);
-    if (!parsed) {
-      console.error(
-        "Invalid PR URL. Expected format: https://github.com/owner/repo/pull/123",
-      );
-      process.exit(1);
-    }
-
-    const pr: TrackedPR = {
-      number: parsed.number,
-      repo: parsed.repo,
-      worker: opts.worker ?? "default",
-      channel: opts.channel ?? config.notifications.channel ?? null,
-      state: "OPENED",
-      headSha: null,
-      addedAt: new Date().toISOString(),
-      lastCheckedAt: null,
-      lastEventAt: null,
-    };
-
-    addPR(config.dataDir, pr);
-    console.log(`Tracking PR #${pr.number} in ${pr.repo} (worker: ${pr.worker})`);
-  });
-
-program
-  .command("list")
-  .description("List tracked PRs")
+  .command("status")
+  .description("Show open PRs being watched and their current state")
   .option("-c, --config <path>", "Path to shepherd.config.json")
   .action((opts) => {
     const config = loadConfig(opts.config);
-    const prs = readTracking(config.dataDir);
+    const cached = readCache(config.dataDir);
 
-    if (prs.length === 0) {
-      console.log("No tracked PRs.");
+    if (cached.length === 0) {
+      console.log("No PRs in state cache. Run 'pr-shepherd start' to begin watching.");
       return;
     }
 
-    console.log(`\n${"PR".padEnd(8)} ${"Repo".padEnd(30)} ${"State".padEnd(22)} ${"Worker".padEnd(15)} Added`);
-    console.log("-".repeat(95));
-    for (const pr of prs) {
+    console.log(
+      `\n${"PR".padEnd(8)} ${"Repo".padEnd(30)} ${"State".padEnd(22)} ${"Title"}`,
+    );
+    console.log("-".repeat(100));
+    for (const pr of cached) {
+      const title = pr.title.length > 38 ? pr.title.slice(0, 37) + "…" : pr.title;
       console.log(
-        `#${String(pr.number).padEnd(7)} ${pr.repo.padEnd(30)} ${pr.state.padEnd(22)} ${pr.worker.padEnd(15)} ${pr.addedAt.slice(0, 10)}`,
+        `#${String(pr.number).padEnd(7)} ${pr.repo.padEnd(30)} ${pr.state.padEnd(22)} ${title}`,
       );
     }
     console.log();
-  });
-
-program
-  .command("remove <number>")
-  .description("Stop tracking a PR")
-  .option("-r, --repo <repo>", "Repository (owner/repo)")
-  .option("-c, --config <path>", "Path to shepherd.config.json")
-  .action((number: string, opts) => {
-    const config = loadConfig(opts.config);
-    const prNumber = parseInt(number, 10);
-
-    const repo =
-      opts.repo ?? config.github.defaultRepo;
-    if (!repo) {
-      console.error(
-        "Repository required. Use --repo or set github.defaultRepo in config.",
-      );
-      process.exit(1);
-    }
-
-    const removed = removePR(config.dataDir, prNumber, repo);
-    if (removed) {
-      console.log(`Removed PR #${prNumber} from ${repo} (was: ${removed.state})`);
-    } else {
-      console.log(`PR #${prNumber} in ${repo} is not tracked.`);
-    }
   });
 
 program
@@ -170,13 +114,5 @@ program
     }
     console.log();
   });
-
-function parsePRUrl(url: string): { repo: string; number: number } | null {
-  const match = url.match(
-    /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/,
-  );
-  if (!match) return null;
-  return { repo: match[1], number: parseInt(match[2], 10) };
-}
 
 program.parse();

@@ -31,14 +31,13 @@ export const TERMINAL_STATES: ReadonlySet<PRState> = new Set([
   "CLOSED",
 ]);
 
-export type TrackedPR = {
+export type WatchedPR = {
   number: number;
   repo: string;
-  worker: string;
-  channel: string | null;
+  title: string;
+  url: string;
   state: PRState;
   headSha: string | null;
-  addedAt: string;
   lastCheckedAt: string | null;
   lastEventAt: string | null;
 };
@@ -100,6 +99,7 @@ export type ShepherdConfig = {
 
   github: {
     defaultRepo: string | null;
+    authorUsername: string | null;
   };
 
   reviews: {
@@ -115,6 +115,7 @@ export type ShepherdConfig = {
   notifications: {
     webhookUrl: string | null;
     channel: string | null;
+    notifyAgent: string | null;
     onMerge: boolean;
     onCIFailure: boolean;
     onStale: boolean;
