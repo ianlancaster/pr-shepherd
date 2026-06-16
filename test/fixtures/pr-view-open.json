@@ -1,0 +1,10 @@
+{
+  "number": 123,
+  "state": "OPEN",
+  "reviewDecision": "REVIEW_REQUIRED",
+  "mergeStateStatus": "BLOCKED",
+  "autoMergeRequest": null,
+  "mergedAt": null,
+  "closedAt": null,
+  "headRefOid": "abc123def456"
+}

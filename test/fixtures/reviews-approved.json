@@ -1,0 +1,10 @@
+{
+  "reviews": [
+    {
+      "author": {"login": "alice"},
+      "state": "APPROVED",
+      "body": "LGTM!",
+      "submittedAt": "2026-06-15T19:00:00Z"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "number": 123,
+  "state": "MERGED",
+  "reviewDecision": "APPROVED",
+  "mergeStateStatus": "UNKNOWN",
+  "autoMergeRequest": null,
+  "mergedAt": "2026-06-15T20:00:00Z",
+  "closedAt": null,
+  "headRefOid": "abc123def456"
+}

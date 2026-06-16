@@ -1,0 +1,181 @@
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import type { ShepherdConfig, MergeStrategy } from "./types.js";
+
+const DEFAULTS: ShepherdConfig = {
+  pollIntervalSeconds: 180,
+  staleThresholdHours: 4,
+  requiredApprovals: 1,
+  mergeStrategy: "squash",
+  dryRun: false,
+  dataDir: "./data",
+
+  github: {
+    defaultRepo: null,
+  },
+
+  reviews: {
+    ignoreUsers: [],
+    botUsers: [],
+  },
+
+  checks: {
+    requiredChecks: [],
+    ignoreChecks: [],
+  },
+
+  notifications: {
+    webhookUrl: null,
+    channel: null,
+    onMerge: true,
+    onCIFailure: true,
+    onStale: true,
+    onApproval: true,
+  },
+
+  agent: {
+    conductorUrl: null,
+    shepherdPane: null,
+  },
+
+  reviewInbox: {
+    enabled: false,
+    githubUser: null,
+    notifyAgent: null,
+    notifyPane: null,
+    ignoreRepos: [],
+    ignoreDrafts: true,
+  },
+};
+
+const VALID_MERGE_STRATEGIES: ReadonlySet<string> = new Set([
+  "squash",
+  "merge",
+  "rebase",
+]);
+
+function deepMerge<T extends Record<string, unknown>>(
+  base: T,
+  override: Partial<T>,
+): T {
+  const result = { ...base };
+  for (const key of Object.keys(override) as Array<keyof T>) {
+    const val = override[key];
+    if (
+      val !== undefined &&
+      val !== null &&
+      typeof val === "object" &&
+      !Array.isArray(val) &&
+      typeof base[key] === "object" &&
+      base[key] !== null &&
+      !Array.isArray(base[key])
+    ) {
+      result[key] = deepMerge(
+        base[key] as Record<string, unknown>,
+        val as Record<string, unknown>,
+      ) as T[keyof T];
+    } else if (val !== undefined) {
+      result[key] = val as T[keyof T];
+    }
+  }
+  return result;
+}
+
+function applyEnvOverrides(config: ShepherdConfig): ShepherdConfig {
+  const env = process.env;
+
+  if (env.PR_SHEPHERD_DATA_DIR) config.dataDir = env.PR_SHEPHERD_DATA_DIR;
+  if (env.PR_SHEPHERD_WEBHOOK_URL)
+    config.notifications.webhookUrl = env.PR_SHEPHERD_WEBHOOK_URL;
+  if (env.PR_SHEPHERD_CONDUCTOR_URL)
+    config.agent.conductorUrl = env.PR_SHEPHERD_CONDUCTOR_URL;
+  if (env.PR_SHEPHERD_TMUX_PANE)
+    config.agent.shepherdPane = env.PR_SHEPHERD_TMUX_PANE;
+  if (env.PR_SHEPHERD_POLL_INTERVAL) {
+    const v = parseInt(env.PR_SHEPHERD_POLL_INTERVAL, 10);
+    if (!isNaN(v)) config.pollIntervalSeconds = v;
+  }
+  if (env.PR_SHEPHERD_STALE_HOURS) {
+    const v = parseInt(env.PR_SHEPHERD_STALE_HOURS, 10);
+    if (!isNaN(v)) config.staleThresholdHours = v;
+  }
+  if (env.PR_SHEPHERD_REQUIRED_APPROVALS) {
+    const v = parseInt(env.PR_SHEPHERD_REQUIRED_APPROVALS, 10);
+    if (!isNaN(v)) config.requiredApprovals = v;
+  }
+  if (env.PR_SHEPHERD_DRY_RUN) config.dryRun = env.PR_SHEPHERD_DRY_RUN === "true";
+  if (env.PR_SHEPHERD_DEFAULT_REPO)
+    config.github.defaultRepo = env.PR_SHEPHERD_DEFAULT_REPO;
+  if (env.PR_SHEPHERD_REVIEW_INBOX_USER)
+    config.reviewInbox.githubUser = env.PR_SHEPHERD_REVIEW_INBOX_USER;
+  if (env.PR_SHEPHERD_REVIEW_INBOX_AGENT)
+    config.reviewInbox.notifyAgent = env.PR_SHEPHERD_REVIEW_INBOX_AGENT;
+  if (env.PR_SHEPHERD_REVIEW_INBOX_PANE)
+    config.reviewInbox.notifyPane = env.PR_SHEPHERD_REVIEW_INBOX_PANE;
+  if (env.PR_SHEPHERD_REVIEW_INBOX_ENABLED)
+    config.reviewInbox.enabled = env.PR_SHEPHERD_REVIEW_INBOX_ENABLED === "true";
+
+  return config;
+}
+
+function validate(config: ShepherdConfig): string[] {
+  const errors: string[] = [];
+
+  if (config.pollIntervalSeconds < 10)
+    errors.push("pollIntervalSeconds must be >= 10");
+  if (config.staleThresholdHours < 0)
+    errors.push("staleThresholdHours must be >= 0");
+  if (config.requiredApprovals < 0)
+    errors.push("requiredApprovals must be >= 0");
+  if (!VALID_MERGE_STRATEGIES.has(config.mergeStrategy))
+    errors.push(
+      `mergeStrategy must be one of: ${[...VALID_MERGE_STRATEGIES].join(", ")}`,
+    );
+  if (config.reviewInbox.enabled && !config.reviewInbox.githubUser)
+    errors.push(
+      "reviewInbox.githubUser is required when reviewInbox is enabled",
+    );
+  if (
+    config.reviewInbox.enabled &&
+    !config.reviewInbox.notifyAgent &&
+    !config.reviewInbox.notifyPane
+  )
+    errors.push(
+      "reviewInbox requires either notifyAgent or notifyPane to deliver notifications",
+    );
+
+  return errors;
+}
+
+export function loadConfig(
+  configPath?: string,
+  cliOverrides?: Partial<ShepherdConfig>,
+): ShepherdConfig {
+  let fileConfig: Partial<ShepherdConfig> = {};
+
+  const resolvedPath = configPath
+    ? resolve(configPath)
+    : resolve("shepherd.config.json");
+
+  if (existsSync(resolvedPath)) {
+    const raw = readFileSync(resolvedPath, "utf-8");
+    fileConfig = JSON.parse(raw) as Partial<ShepherdConfig>;
+  }
+
+  const defaults = JSON.parse(JSON.stringify(DEFAULTS)) as ShepherdConfig;
+  let config = deepMerge(defaults, fileConfig);
+  config = applyEnvOverrides(config);
+
+  if (cliOverrides) {
+    config = deepMerge(config, cliOverrides);
+  }
+
+  const errors = validate(config);
+  if (errors.length > 0) {
+    throw new Error(`Invalid configuration:\n  ${errors.join("\n  ")}`);
+  }
+
+  return config;
+}
+
+export { DEFAULTS };

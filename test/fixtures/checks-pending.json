@@ -1,0 +1,8 @@
+[
+  {"bucket":"pass","completedAt":"2026-06-15T18:20:04Z","name":"Vercel Preview Comments","state":"SUCCESS","workflow":""},
+  {"bucket":"pending","completedAt":"0001-01-01T00:00:00Z","name":"test-suite (1)","state":"IN_PROGRESS","workflow":"CI"},
+  {"bucket":"pending","completedAt":"0001-01-01T00:00:00Z","name":"test-suite (2)","state":"IN_PROGRESS","workflow":"CI"},
+  {"bucket":"pass","completedAt":"2026-06-15T18:19:05Z","name":"danger","state":"SUCCESS","workflow":"CI"},
+  {"bucket":"pass","completedAt":"2026-06-15T18:17:33Z","name":"changes","state":"SUCCESS","workflow":"CI"},
+  {"bucket":"pending","completedAt":"0001-01-01T00:00:00Z","name":"lint","state":"IN_PROGRESS","workflow":"CI"}
+]

@@ -1,0 +1,9 @@
+[
+  {"bucket":"pass","completedAt":"2026-06-15T18:20:04Z","name":"Vercel Preview Comments","state":"SUCCESS","workflow":""},
+  {"bucket":"pass","completedAt":"2026-06-15T18:22:00Z","name":"test-suite (1)","state":"SUCCESS","workflow":"CI"},
+  {"bucket":"pass","completedAt":"2026-06-15T18:22:00Z","name":"test-suite (2)","state":"SUCCESS","workflow":"CI"},
+  {"bucket":"pass","completedAt":"2026-06-15T18:19:05Z","name":"danger","state":"SUCCESS","workflow":"CI"},
+  {"bucket":"pass","completedAt":"2026-06-15T18:17:33Z","name":"changes","state":"SUCCESS","workflow":"CI"},
+  {"bucket":"pass","completedAt":"2026-06-15T18:21:00Z","name":"lint","state":"SUCCESS","workflow":"CI"},
+  {"bucket":"skipping","completedAt":"2026-06-15T18:18:04Z","name":"optional-deploy","state":"SKIPPED","workflow":""}
+]

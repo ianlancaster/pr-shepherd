@@ -1,0 +1,10 @@
+{
+  "reviews": [
+    {
+      "author": {"login": "bob"},
+      "state": "CHANGES_REQUESTED",
+      "body": "Two issues:\n\n1. Off-by-one in the pagination logic\n2. Missing null check on the response handler",
+      "submittedAt": "2026-06-15T19:00:00Z"
+    }
+  ]
+}
