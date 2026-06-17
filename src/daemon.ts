@@ -8,6 +8,7 @@ import {
   evaluateChecks,
   evaluateReviews,
   enableAutoMerge,
+  updateBranch,
 } from "./github.js";
 import { readCache, upsertCachedPR, removeCachedPR, getCachedPR } from "./state-cache.js";
 import { appendEvent } from "./events.js";
@@ -210,6 +211,24 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
         const details = { failedChecks: checkResult.failed };
         tryTransition(config, pr, "ci_failed", details);
         await handleTransition(config, pr, "CI_FAILED", details);
+      }
+
+      if (prView.mergeStateStatus === "BEHIND") {
+        if (prView.mergeable === "MERGEABLE") {
+          log(`PR #${pr.number} is behind base branch — updating branch.`);
+          if (!config.dryRun) {
+            try {
+              updateBranch(pr.number, pr.repo);
+              log(`Branch updated for PR #${pr.number}.`);
+            } catch (err) {
+              log(`Failed to update branch for PR #${pr.number}: ${(err as Error).message}`);
+            }
+          }
+        } else if (prView.mergeable === "CONFLICTING") {
+          const msg = `[PR Shepherd] PR #${pr.number} (${pr.repo}) — Merge conflicts detected. Auto-merge is enabled but the branch cannot be updated automatically. Please resolve conflicts manually.`;
+          log(`PR #${pr.number} has merge conflicts — escalating.`);
+          if (!config.dryRun) await sendToAgent(config, config.notifications.notifyAgent!, msg);
+        }
       }
     }
 

@@ -20,6 +20,7 @@ type RawPRView = {
   state: string;
   reviewDecision: string | null;
   mergeStateStatus: string;
+  mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
   autoMergeRequest: { mergeMethod: string } | null;
   mergedAt: string | null;
   closedAt: string | null;
@@ -41,7 +42,7 @@ export function fetchPRView(number: number, repo: string): RawPRView {
     "-R",
     repo,
     "--json",
-    "number,state,reviewDecision,mergeStateStatus,autoMergeRequest,mergedAt,closedAt,headRefOid",
+    "number,state,reviewDecision,mergeStateStatus,mergeable,autoMergeRequest,mergedAt,closedAt,headRefOid",
   ]);
   return JSON.parse(json) as RawPRView;
 }
@@ -80,6 +81,10 @@ export function enableAutoMerge(
 ): void {
   const flag = `--${strategy}`;
   gh(["pr", "merge", String(number), "-R", repo, "--auto", flag]);
+}
+
+export function updateBranch(number: number, repo: string): void {
+  gh(["pr", "update-branch", String(number), "-R", repo]);
 }
 
 export function parseChecks(
