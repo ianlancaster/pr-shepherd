@@ -205,6 +205,10 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
       }
     }
 
+    if (pr.state === "APPROVED" && prView.autoMergeRequest) {
+      tryTransition(config, pr, "auto_merge_enabled");
+    }
+
     if (pr.state === "AUTO_MERGE_ENABLED") {
       const checkResult = evaluateChecks(checks, config);
       if (checkResult.status === "fail") {
