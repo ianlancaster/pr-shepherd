@@ -12,6 +12,8 @@ Two watch loops run on a configurable interval (default: 3 minutes):
    - **CI fails** → sends failure details to your notify agent
    - **Reviewer requests changes** → sends the full review body to your notify agent
    - **All approvals received** → enables auto-merge via `gh pr merge --auto --squash`
+   - **Branch behind base with auto-merge enabled** → runs `gh pr update-branch` to bring it up to date, then monitors CI until the merge completes. Repeats every poll cycle until merged.
+   - **Merge conflicts with auto-merge enabled** → escalates to your notify agent (cannot auto-resolve)
    - **PR goes stale** (no review activity past threshold) → sends a stale notice
    - **PR merges or closes** → cleans up state cache, sends confirmation
 
@@ -252,10 +254,15 @@ Each discovered PR is tracked through these states:
 
 ```
 OPENED → CI_PENDING → CI_PASSED → AWAITING_REVIEW → APPROVED → AUTO_MERGE_ENABLED → MERGED
-                    ↘ CI_FAILED ──→ (notify agent) ──→ CI_PENDING (on new commit)
-                                    AWAITING_REVIEW → CHANGES_REQUESTED → (notify agent) → CI_PENDING (on new commit)
-                                    AWAITING_REVIEW → STALE → (notify agent)
 ```
+
+Key loops and branches:
+- **CI failure**: `CI_PENDING → CI_FAILED` → agent notified → worker pushes fix → `CI_PENDING`
+- **Changes requested**: `AWAITING_REVIEW → CHANGES_REQUESTED` → agent notified → worker fixes → `CI_PENDING`
+- **Behind base branch**: `AUTO_MERGE_ENABLED` + `BEHIND` → `gh pr update-branch` → CI re-runs → polls until merged
+- **Merge conflicts**: `AUTO_MERGE_ENABLED` + `CONFLICTING` → escalated to agent
+- **Stale**: `AWAITING_REVIEW` past threshold → `STALE` → agent notified
+- **External auto-merge**: if GitHub shows `autoMergeRequest` already set on an `APPROVED` PR, transitions to `AUTO_MERGE_ENABLED` automatically
 
 Terminal states: `MERGED`, `CLOSED` (reachable from any non-terminal state).
 
