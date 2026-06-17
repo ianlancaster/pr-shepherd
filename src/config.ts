@@ -49,6 +49,16 @@ const DEFAULTS: ShepherdConfig = {
     ignoreDrafts: true,
     maxAgeDays: 5,
   },
+
+  reviewFollowUp: {
+    enabled: false,
+  },
+
+  reviewerNudge: {
+    enabled: false,
+    escalateAfterHours: 24,
+    businessDaysOnly: true,
+  },
 };
 
 const VALID_MERGE_STRATEGIES: ReadonlySet<string> = new Set([

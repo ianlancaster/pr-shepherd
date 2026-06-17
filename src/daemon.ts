@@ -15,6 +15,8 @@ import { appendEvent } from "./events.js";
 import { transition, isTerminal } from "./state-machine.js";
 import { sendToAgent } from "./notifications.js";
 import { pollReviewInbox } from "./review-inbox.js";
+import { pollReviewFollowUps } from "./review-followup.js";
+import { pollReviewerNudges, registerNudge } from "./reviewer-nudge.js";
 import {
   formatCIFailureMessage,
   formatReviewMessage,
@@ -183,6 +185,18 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
       pr.headSha = prView.headRefOid;
       upsertCachedPR(config.dataDir, pr);
       tryTransition(config, pr, "new_commit");
+
+      if (config.reviewerNudge.enabled) {
+        const reviews = parseReviews(rawReviews, config);
+        const changesRequestedBy = reviews
+          .filter((r) => r.state === "CHANGES_REQUESTED")
+          .map((r) => r.author);
+        const uniqueReviewers = [...new Set(changesRequestedBy)];
+        for (const reviewer of uniqueReviewers) {
+          registerNudge(config.dataDir, pr.number, pr.repo, reviewer, new Date().toISOString());
+          log(`Registered reviewer nudge for @${reviewer} on PR #${pr.number}`);
+        }
+      }
     }
 
     if (pr.state === "OPENED") {
@@ -325,12 +339,22 @@ export async function startDaemon(config: ShepherdConfig): Promise<void> {
   if (config.reviewInbox.enabled) {
     log(`Review inbox enabled for @${config.reviewInbox.githubUser}`);
   }
+  if (config.reviewFollowUp.enabled) {
+    log(`Review follow-up tracking enabled`);
+  }
+  if (config.reviewerNudge.enabled) {
+    log(`Reviewer nudge enabled (escalate after ${config.reviewerNudge.escalateAfterHours}h${config.reviewerNudge.businessDaysOnly ? ", business days only" : ""})`);
+  }
 
   await pollAll(config);
   await pollReviewInbox(config);
+  await pollReviewFollowUps(config);
+  await pollReviewerNudges(config);
 
   setInterval(async () => {
     await pollAll(config);
     await pollReviewInbox(config);
+    await pollReviewFollowUps(config);
+    await pollReviewerNudges(config);
   }, config.pollIntervalSeconds * 1000);
 }

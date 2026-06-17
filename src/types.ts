@@ -87,6 +87,29 @@ export type ReviewAssignment = {
   notifiedAt: string;
 };
 
+export type ReviewFollowUp = {
+  number: number;
+  repo: string;
+  title: string;
+  url: string;
+  ourReviewSubmittedAt: string;
+  headShaAtReview: string;
+  lastKnownHeadSha: string;
+  notifiedForReReviewAt: string | null;
+  status: "watching" | "re_review_requested" | "approved" | "closed";
+};
+
+export type ReviewerNudge = {
+  number: number;
+  repo: string;
+  reviewer: string;
+  fixPushedAt: string;
+  commentPostedAt: string | null;
+  lastEscalatedAt: string | null;
+  escalationCount: number;
+  status: "pending_comment" | "waiting" | "responded" | "closed";
+};
+
 export type MergeStrategy = "squash" | "merge" | "rebase";
 
 export type ShepherdConfig = {
@@ -135,5 +158,15 @@ export type ShepherdConfig = {
     ignoreRepos: string[];
     ignoreDrafts: boolean;
     maxAgeDays: number;
+  };
+
+  reviewFollowUp: {
+    enabled: boolean;
+  };
+
+  reviewerNudge: {
+    enabled: boolean;
+    escalateAfterHours: number;
+    businessDaysOnly: boolean;
   };
 };

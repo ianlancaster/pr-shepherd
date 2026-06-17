@@ -87,6 +87,69 @@ export function updateBranch(number: number, repo: string): void {
   gh(["pr", "update-branch", String(number), "-R", repo]);
 }
 
+export function postComment(number: number, repo: string, body: string): void {
+  gh(["pr", "comment", String(number), "-R", repo, "--body", body]);
+}
+
+export function fetchCommits(
+  number: number,
+  repo: string,
+): Array<{ sha: string; date: string; message: string }> {
+  const json = gh([
+    "pr",
+    "view",
+    String(number),
+    "-R",
+    repo,
+    "--json",
+    "commits",
+  ]);
+  const data = JSON.parse(json) as {
+    commits: Array<{ oid: string; committedDate: string; messageHeadline: string }>;
+  };
+  return data.commits.map((c) => ({
+    sha: c.oid,
+    date: c.committedDate,
+    message: c.messageHeadline,
+  }));
+}
+
+export function fetchUserReviews(
+  number: number,
+  repo: string,
+  username: string,
+): Array<{ state: string; submittedAt: string; body: string }> {
+  const rawReviews = fetchReviews(number, repo);
+  return rawReviews
+    .filter((r) => r.author.login.toLowerCase() === username.toLowerCase())
+    .map((r) => ({ state: r.state, submittedAt: r.submittedAt, body: r.body }));
+}
+
+export function hasNewCommitsSince(
+  number: number,
+  repo: string,
+  since: string,
+): boolean {
+  const commits = fetchCommits(number, repo);
+  const sinceTime = new Date(since).getTime();
+  return commits.some((c) => new Date(c.date).getTime() > sinceTime);
+}
+
+export function hasReviewerRespondedSince(
+  number: number,
+  repo: string,
+  reviewer: string,
+  since: string,
+): boolean {
+  const reviews = fetchReviews(number, repo);
+  const sinceTime = new Date(since).getTime();
+  return reviews.some(
+    (r) =>
+      r.author.login.toLowerCase() === reviewer.toLowerCase() &&
+      new Date(r.submittedAt).getTime() > sinceTime,
+  );
+}
+
 export function parseChecks(
   rawChecks: RawCheck[],
   config: ShepherdConfig,
