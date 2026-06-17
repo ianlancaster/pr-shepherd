@@ -272,57 +272,65 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
           tryTransition(config, pr, "review_posted");
         }
 
-        const botComments = fetchBotComments(pr.number, pr.repo, config.reviews.botUsers);
-        const cutoff = pr.lastBotCommentNotifiedAt ?? "1970-01-01T00:00:00Z";
-        const newActionable = botComments.filter(
-          (c) => c.hasActionableFindings && c.createdAt > cutoff,
-        );
-        if (newActionable.length > 0) {
-          for (const comment of newActionable) {
-            const msg = [
-              `[PR Shepherd] PR #${pr.number} (${pr.repo}) — Bot Review Feedback`,
-              "",
-              `Bot: ${comment.author}`,
-              "",
-              comment.body,
-              "",
-              "This bot review has actionable findings (❌) that need to be addressed before the PR can be approved.",
-            ].join("\n");
-            log(`Bot feedback with actionable findings from ${comment.author} on PR #${pr.number}`);
-            if (!config.dryRun) {
-              await sendToAgent(config, config.notifications.notifyAgent!, msg);
+        if (pr.botFeedbackCount < config.botFeedback.maxAttempts) {
+          const botComments = fetchBotComments(pr.number, pr.repo, config.reviews.botUsers);
+          const cutoff = pr.lastBotCommentNotifiedAt ?? "1970-01-01T00:00:00Z";
+          const newActionable = botComments.filter(
+            (c) => c.hasActionableFindings && c.createdAt > cutoff,
+          );
+          if (newActionable.length > 0) {
+            for (const comment of newActionable) {
+              const msg = [
+                `[PR Shepherd] PR #${pr.number} (${pr.repo}) — Bot Review Feedback (attempt ${pr.botFeedbackCount + 1}/${config.botFeedback.maxAttempts})`,
+                "",
+                `Bot: ${comment.author}`,
+                "",
+                comment.body,
+                "",
+                "This bot review has actionable findings (❌) that need to be addressed before the PR can be approved.",
+              ].join("\n");
+              log(`Bot feedback from ${comment.author} on PR #${pr.number} (attempt ${pr.botFeedbackCount + 1}/${config.botFeedback.maxAttempts})`);
+              if (!config.dryRun) {
+                await sendToAgent(config, config.notifications.notifyAgent!, msg);
+              }
+            }
+            pr.botFeedbackCount++;
+            pr.lastBotCommentNotifiedAt = newActionable[newActionable.length - 1].createdAt;
+            upsertCachedPR(config.dataDir, pr);
+            if (pr.state === "CI_PASSED") {
+              tryTransition(config, pr, "review_posted");
             }
           }
-          pr.lastBotCommentNotifiedAt = newActionable[newActionable.length - 1].createdAt;
-          upsertCachedPR(config.dataDir, pr);
-          if (pr.state === "CI_PASSED") {
-            tryTransition(config, pr, "review_posted");
-          }
+        } else if (pr.botFeedbackCount >= config.botFeedback.maxAttempts) {
+          log(`PR #${pr.number} — bot feedback limit reached (${config.botFeedback.maxAttempts}), ignoring further bot findings.`);
         }
       } else if (pr.state === "AWAITING_REVIEW") {
-        const botComments = fetchBotComments(pr.number, pr.repo, config.reviews.botUsers);
-        const cutoff = pr.lastBotCommentNotifiedAt ?? "1970-01-01T00:00:00Z";
-        const newActionable = botComments.filter(
-          (c) => c.hasActionableFindings && c.createdAt > cutoff,
-        );
-        if (newActionable.length > 0) {
-          for (const comment of newActionable) {
-            const msg = [
-              `[PR Shepherd] PR #${pr.number} (${pr.repo}) — Bot Review Feedback`,
-              "",
-              `Bot: ${comment.author}`,
-              "",
-              comment.body,
-              "",
-              "This bot review has actionable findings (❌) that need to be addressed before the PR can be approved.",
-            ].join("\n");
-            log(`Bot feedback with actionable findings from ${comment.author} on PR #${pr.number}`);
-            if (!config.dryRun) {
-              await sendToAgent(config, config.notifications.notifyAgent!, msg);
+        if (pr.botFeedbackCount < config.botFeedback.maxAttempts) {
+          const botComments = fetchBotComments(pr.number, pr.repo, config.reviews.botUsers);
+          const cutoff = pr.lastBotCommentNotifiedAt ?? "1970-01-01T00:00:00Z";
+          const newActionable = botComments.filter(
+            (c) => c.hasActionableFindings && c.createdAt > cutoff,
+          );
+          if (newActionable.length > 0) {
+            for (const comment of newActionable) {
+              const msg = [
+                `[PR Shepherd] PR #${pr.number} (${pr.repo}) — Bot Review Feedback (attempt ${pr.botFeedbackCount + 1}/${config.botFeedback.maxAttempts})`,
+                "",
+                `Bot: ${comment.author}`,
+                "",
+                comment.body,
+                "",
+                "This bot review has actionable findings (❌) that need to be addressed before the PR can be approved.",
+              ].join("\n");
+              log(`Bot feedback from ${comment.author} on PR #${pr.number} (attempt ${pr.botFeedbackCount + 1}/${config.botFeedback.maxAttempts})`);
+              if (!config.dryRun) {
+                await sendToAgent(config, config.notifications.notifyAgent!, msg);
+              }
             }
+            pr.botFeedbackCount++;
+            pr.lastBotCommentNotifiedAt = newActionable[newActionable.length - 1].createdAt;
+            upsertCachedPR(config.dataDir, pr);
           }
-          pr.lastBotCommentNotifiedAt = newActionable[newActionable.length - 1].createdAt;
-          upsertCachedPR(config.dataDir, pr);
         }
 
         const staleHours =
@@ -370,6 +378,7 @@ export async function pollAll(config: ShepherdConfig): Promise<void> {
       lastCheckedAt: null,
       lastEventAt: null,
       lastBotCommentNotifiedAt: null,
+      botFeedbackCount: 0,
     };
 
     await pollPR(config, pr);

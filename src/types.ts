@@ -41,6 +41,7 @@ export type WatchedPR = {
   lastCheckedAt: string | null;
   lastEventAt: string | null;
   lastBotCommentNotifiedAt: string | null;
+  botFeedbackCount: number;
 };
 
 export type PREventRecord = {
@@ -163,6 +164,10 @@ export type ShepherdConfig = {
 
   reviewFollowUp: {
     enabled: boolean;
+  };
+
+  botFeedback: {
+    maxAttempts: number;
   };
 
   reviewerNudge: {

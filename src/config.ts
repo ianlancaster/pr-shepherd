@@ -54,6 +54,10 @@ const DEFAULTS: ShepherdConfig = {
     enabled: false,
   },
 
+  botFeedback: {
+    maxAttempts: 2,
+  },
+
   reviewerNudge: {
     enabled: false,
     escalateAfterHours: 24,
