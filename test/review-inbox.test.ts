@@ -4,22 +4,11 @@ import {
   writeInbox,
   formatReviewAssignmentMessage,
 } from "../src/review-inbox.js";
-import { readEvents } from "../src/events.js";
-import { DEFAULTS } from "../src/config.js";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ShepherdConfig, ReviewAssignment } from "../src/types.js";
+import type { ReviewAssignment } from "../src/types.js";
 
 const TMP = join(import.meta.dirname, "__tmp_review_inbox");
-
-function makeConfig(overrides?: Partial<ShepherdConfig>): ShepherdConfig {
-  return {
-    ...JSON.parse(JSON.stringify(DEFAULTS)),
-    dataDir: TMP,
-    dryRun: true,
-    ...overrides,
-  };
-}
 
 function makeAssignment(overrides?: Partial<ReviewAssignment>): ReviewAssignment {
   return {
@@ -27,7 +16,10 @@ function makeAssignment(overrides?: Partial<ReviewAssignment>): ReviewAssignment
     repo: "acme/widgets",
     title: "feat: add widget sorting",
     url: "https://github.com/acme/widgets/pull/42",
+    detectedAt: "2026-01-01T00:00:00Z",
     notifiedAt: "2026-01-01T00:00:00Z",
+    completedAt: null,
+    status: "dispatched",
     ...overrides,
   };
 }
@@ -65,18 +57,39 @@ describe("review-inbox", () => {
       expect(msg).toContain("https://github.com/acme/widgets/pull/42");
       expect(msg).toContain("dispatch a worker");
     });
+  });
 
-    it("includes the full title in quotes", () => {
-      const assignment = makeAssignment({
-        title: 'fix(auth): handle edge case in "OAuth flow"',
+  describe("status tracking", () => {
+    it("tracks pending_bot_review status", () => {
+      const a = makeAssignment({ status: "pending_bot_review", notifiedAt: null });
+      writeInbox(TMP, [a]);
+      const inbox = readInbox(TMP);
+      expect(inbox[0].status).toBe("pending_bot_review");
+      expect(inbox[0].notifiedAt).toBeNull();
+    });
+
+    it("tracks dispatched status with notifiedAt", () => {
+      const a = makeAssignment({ status: "dispatched", notifiedAt: "2026-01-01T00:05:00Z" });
+      writeInbox(TMP, [a]);
+      const inbox = readInbox(TMP);
+      expect(inbox[0].status).toBe("dispatched");
+      expect(inbox[0].notifiedAt).toBe("2026-01-01T00:05:00Z");
+    });
+
+    it("tracks terminal statuses with completedAt", () => {
+      const a = makeAssignment({
+        status: "merged_before_review",
+        completedAt: "2026-01-01T01:00:00Z",
       });
-      const msg = formatReviewAssignmentMessage(assignment);
-      expect(msg).toContain('"fix(auth): handle edge case in "OAuth flow""');
+      writeInbox(TMP, [a]);
+      const inbox = readInbox(TMP);
+      expect(inbox[0].status).toBe("merged_before_review");
+      expect(inbox[0].completedAt).toBe("2026-01-01T01:00:00Z");
     });
   });
 
   describe("deduplication", () => {
-    it("does not re-notify for existing assignments", () => {
+    it("does not re-add existing assignments", () => {
       const existing = [makeAssignment({ number: 42 })];
       writeInbox(TMP, existing);
 

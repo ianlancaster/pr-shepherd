@@ -81,12 +81,22 @@ export type PRSnapshot = {
   reviews: ReviewData[];
 };
 
+export type ReviewAssignmentStatus =
+  | "pending_bot_review"
+  | "dispatched"
+  | "review_submitted"
+  | "merged_before_review"
+  | "closed";
+
 export type ReviewAssignment = {
   number: number;
   repo: string;
   title: string;
   url: string;
-  notifiedAt: string;
+  detectedAt: string;
+  notifiedAt: string | null;
+  completedAt: string | null;
+  status: ReviewAssignmentStatus;
 };
 
 export type ReviewFollowUp = {
@@ -160,6 +170,7 @@ export type ShepherdConfig = {
     ignoreRepos: string[];
     ignoreDrafts: boolean;
     maxAgeDays: number;
+    waitForBot: string | null;
   };
 
   reviewFollowUp: {

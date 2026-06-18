@@ -103,13 +103,13 @@ program
     }
 
     console.log(
-      `\n${"PR".padEnd(8)} ${"Repo".padEnd(30)} ${"Title".padEnd(50)} Notified`,
+      `\n${"PR".padEnd(8)} ${"Repo".padEnd(30)} ${"Status".padEnd(22)} ${"Title"}`,
     );
-    console.log("-".repeat(108));
+    console.log("-".repeat(100));
     for (const a of assignments) {
-      const title = a.title.length > 48 ? a.title.slice(0, 47) + "…" : a.title;
+      const title = a.title.length > 38 ? a.title.slice(0, 37) + "…" : a.title;
       console.log(
-        `#${String(a.number).padEnd(7)} ${a.repo.padEnd(30)} ${title.padEnd(50)} ${a.notifiedAt.slice(0, 10)}`,
+        `#${String(a.number).padEnd(7)} ${a.repo.padEnd(30)} ${a.status.padEnd(22)} ${title}`,
       );
     }
     console.log();

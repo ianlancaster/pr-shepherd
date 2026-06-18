@@ -3,7 +3,8 @@ import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { sendToAgent } from "./notifications.js";
 import { appendEvent } from "./events.js";
-import type { ShepherdConfig, ReviewAssignment, PREventRecord } from "./types.js";
+import { fetchBotComments } from "./github.js";
+import type { ShepherdConfig, ReviewAssignment, ReviewAssignmentStatus, PREventRecord } from "./types.js";
 
 type RawSearchResult = {
   number: number;
@@ -69,6 +70,33 @@ export function hasUserReviewed(number: number, repo: string, githubUser: string
   }
 }
 
+function getPRState(number: number, repo: string): string {
+  try {
+    const json = execFileSync(
+      "gh",
+      ["pr", "view", String(number), "-R", repo, "--json", "state"],
+      { encoding: "utf-8", timeout: 15_000 },
+    ).trim();
+    return (JSON.parse(json) as { state: string }).state;
+  } catch {
+    return "UNKNOWN";
+  }
+}
+
+function botHasReviewed(number: number, repo: string, botUsername: string): boolean {
+  const comments = fetchBotComments(number, repo, [botUsername]);
+  return comments.length > 0;
+}
+
+function botAutoApproved(number: number, repo: string, botUsername: string): boolean {
+  const comments = fetchBotComments(number, repo, [botUsername]);
+  if (comments.length === 0) return false;
+  const latest = comments[comments.length - 1];
+  const hasReviewRequired = /Review Required/i.test(latest.body) || /👥\s*Review Required/i.test(latest.body);
+  const hasActionableFindings = latest.hasActionableFindings;
+  return !hasReviewRequired && !hasActionableFindings;
+}
+
 export function fetchReviewRequests(githubUser: string): RawSearchResult[] {
   const json = execFileSync(
     "gh",
@@ -92,79 +120,180 @@ export async function pollReviewInbox(config: ShepherdConfig): Promise<void> {
 
   try {
     const results = fetchReviewRequests(config.reviewInbox.githubUser);
-    const existing = readInbox(config.dataDir);
-    const notifiedKeys = new Set(existing.map((a) => inboxKey(a.number, a.repo)));
-
-    let newAssignments: ReviewAssignment[] = [];
+    const inbox = readInbox(config.dataDir);
+    const existingKeys = new Set(inbox.map((a) => inboxKey(a.number, a.repo)));
+    const username = config.reviewInbox.githubUser;
+    const waitForBot = config.reviewInbox.waitForBot;
 
     const maxAgeMs = config.reviewInbox.maxAgeDays * 24 * 60 * 60 * 1000;
     const cutoff = Date.now() - maxAgeMs;
+    let updated = false;
 
+    // Discover new assignments
     for (const pr of results) {
       if (config.reviewInbox.ignoreDrafts && pr.isDraft) continue;
       if (config.reviewInbox.ignoreRepos.includes(pr.repository.nameWithOwner)) continue;
       if (new Date(pr.updatedAt).getTime() < cutoff) continue;
 
       const key = inboxKey(pr.number, pr.repository.nameWithOwner);
-      if (notifiedKeys.has(key)) continue;
-      if (hasUserReviewed(pr.number, pr.repository.nameWithOwner, config.reviewInbox.githubUser!)) {
+      if (existingKeys.has(key)) continue;
+
+      if (hasUserReviewed(pr.number, pr.repository.nameWithOwner, username)) {
         log(`Skipping PR #${pr.number} (${pr.repository.nameWithOwner}) — already reviewed`);
         continue;
       }
+
+      const initialStatus: ReviewAssignmentStatus = waitForBot
+        ? "pending_bot_review"
+        : "dispatched";
 
       const assignment: ReviewAssignment = {
         number: pr.number,
         repo: pr.repository.nameWithOwner,
         title: pr.title,
         url: pr.url,
-        notifiedAt: new Date().toISOString(),
+        detectedAt: new Date().toISOString(),
+        notifiedAt: null,
+        completedAt: null,
+        status: initialStatus,
       };
 
-      newAssignments.push(assignment);
+      inbox.push(assignment);
+      existingKeys.add(key);
+      updated = true;
+
+      if (initialStatus === "pending_bot_review") {
+        log(`PR #${pr.number} (${pr.repository.nameWithOwner}) — waiting for ${waitForBot} to review first.`);
+      }
     }
 
-    if (newAssignments.length === 0) {
-      log("No new review assignments.");
-      return;
-    }
-
-    log(`Found ${newAssignments.length} new review assignment(s).`);
-
-    for (const assignment of newAssignments) {
-      const message = formatReviewAssignmentMessage(assignment);
-
-      if (!config.dryRun) {
-        await notifyReviewAssignment(config, message);
+    // Process each tracked assignment
+    for (const assignment of inbox) {
+      if (assignment.status === "review_submitted" ||
+          assignment.status === "merged_before_review" ||
+          assignment.status === "closed") {
+        continue;
       }
 
-      log(`Notified: PR #${assignment.number} (${assignment.repo}) — ${assignment.title}`);
+      try {
+        // Check if PR merged or closed
+        const prState = getPRState(assignment.number, assignment.repo);
 
-      const event: PREventRecord = {
-        ts: assignment.notifiedAt,
-        pr: assignment.number,
-        repo: assignment.repo,
-        event: "review_requested",
-        from: "OPENED",
-        to: "OPENED",
-        details: {
-          type: "review_inbox",
-          title: assignment.title,
-          url: assignment.url,
-          notifyAgent: config.reviewInbox.notifyAgent,
-        },
-      };
-      appendEvent(config.dataDir, event);
+        if (prState === "MERGED" || prState === "CLOSED") {
+          if (assignment.status === "dispatched") {
+            const msg = [
+              `[PR Shepherd] Review no longer needed: PR #${assignment.number} (${assignment.repo})`,
+              `"${assignment.title}"`,
+              assignment.url,
+              "",
+              `This PR has been ${prState.toLowerCase()} before our review was posted.`,
+              "Please free the worker assigned to this review — it can be reset for other work.",
+            ].join("\n");
+            log(`PR #${assignment.number} ${prState.toLowerCase()} before review — notifying to free worker.`);
+            if (!config.dryRun) {
+              await notifyAgent(config, msg);
+            }
+            appendEvent(config.dataDir, {
+              ts: new Date().toISOString(),
+              pr: assignment.number,
+              repo: assignment.repo,
+              event: "closed",
+              from: "OPENED",
+              to: "CLOSED",
+              details: { type: "review_inbox", reason: `${prState.toLowerCase()}_before_review` },
+            });
+          }
+          assignment.status = prState === "MERGED" ? "merged_before_review" : "closed";
+          assignment.completedAt = new Date().toISOString();
+          updated = true;
+          continue;
+        }
+
+        // Check if we've submitted our review
+        if (assignment.status === "dispatched" && hasUserReviewed(assignment.number, assignment.repo, username)) {
+          const msg = [
+            `[PR Shepherd] Review complete: PR #${assignment.number} (${assignment.repo})`,
+            `"${assignment.title}"`,
+            "",
+            "Our review has been submitted. Please free the worker assigned to this review.",
+          ].join("\n");
+          log(`PR #${assignment.number} — our review has been submitted. Notifying to free worker.`);
+          if (!config.dryRun) {
+            await notifyAgent(config, msg);
+          }
+          assignment.status = "review_submitted";
+          assignment.completedAt = new Date().toISOString();
+          updated = true;
+          continue;
+        }
+
+        // Handle pending_bot_review → check if bot has posted
+        if (assignment.status === "pending_bot_review" && waitForBot) {
+          if (!botHasReviewed(assignment.number, assignment.repo, waitForBot)) {
+            continue;
+          }
+
+          if (botAutoApproved(assignment.number, assignment.repo, waitForBot)) {
+            log(`PR #${assignment.number} — ${waitForBot} auto-approved. Skipping human review.`);
+            assignment.status = "closed";
+            assignment.completedAt = new Date().toISOString();
+            updated = true;
+            continue;
+          }
+
+          log(`PR #${assignment.number} — ${waitForBot} reviewed but did not auto-approve. Dispatching for human review.`);
+          assignment.status = "dispatched";
+        }
+
+        // Dispatch notification for newly dispatched assignments
+        if (assignment.status === "dispatched" && !assignment.notifiedAt) {
+          const msg = formatReviewAssignmentMessage(assignment);
+          if (!config.dryRun) {
+            await notifyAgent(config, msg);
+          }
+          assignment.notifiedAt = new Date().toISOString();
+          updated = true;
+
+          log(`Dispatched: PR #${assignment.number} (${assignment.repo}) — ${assignment.title}`);
+
+          appendEvent(config.dataDir, {
+            ts: assignment.notifiedAt,
+            pr: assignment.number,
+            repo: assignment.repo,
+            event: "review_requested",
+            from: "OPENED",
+            to: "OPENED",
+            details: { type: "review_inbox", title: assignment.title, url: assignment.url },
+          });
+        }
+      } catch (err) {
+        log(`Error processing assignment PR #${assignment.number}: ${(err as Error).message}`);
+      }
     }
 
-    writeInbox(config.dataDir, [...existing, ...newAssignments]);
+    // Prune terminal assignments older than 7 days
+    const pruneThreshold = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const active = inbox.filter((a) => {
+      if (a.status === "pending_bot_review" || a.status === "dispatched") return true;
+      if (a.completedAt && new Date(a.completedAt).getTime() < pruneThreshold) return false;
+      return true;
+    });
 
-    pruneClosedAssignments(config);
+    if (updated || active.length !== inbox.length) {
+      writeInbox(config.dataDir, active);
+    }
+
+    const pending = active.filter((a) => a.status === "pending_bot_review").length;
+    const dispatched = active.filter((a) => a.status === "dispatched").length;
+    if (pending > 0 || dispatched > 0) {
+      log(`Active: ${dispatched} dispatched, ${pending} waiting for bot review.`);
+    }
   } catch (err) {
     log(`Error polling review inbox: ${(err as Error).message}`);
   }
 }
 
-async function notifyReviewAssignment(config: ShepherdConfig, message: string): Promise<void> {
+async function notifyAgent(config: ShepherdConfig, message: string): Promise<void> {
   const agent = config.reviewInbox.notifyAgent ?? config.notifications.notifyAgent;
   if (!agent) {
     log("No notify agent configured for review inbox");
@@ -185,34 +314,6 @@ function formatReviewAssignmentMessage(assignment: ReviewAssignment): string {
     "",
     "You've been requested as a reviewer. Please dispatch a worker to review this PR and prepare a review report.",
   ].join("\n");
-}
-
-function pruneClosedAssignments(config: ShepherdConfig): void {
-  const assignments = readInbox(config.dataDir);
-  if (assignments.length === 0) return;
-
-  const stillOpen: ReviewAssignment[] = [];
-  for (const a of assignments) {
-    try {
-      const json = execFileSync(
-        "gh",
-        ["pr", "view", String(a.number), "-R", a.repo, "--json", "state"],
-        { encoding: "utf-8", timeout: 15_000 },
-      ).trim();
-      const { state } = JSON.parse(json) as { state: string };
-      if (state === "OPEN") {
-        stillOpen.push(a);
-      } else {
-        log(`Pruned closed/merged PR #${a.number} (${a.repo}) from review inbox.`);
-      }
-    } catch {
-      stillOpen.push(a);
-    }
-  }
-
-  if (stillOpen.length !== assignments.length) {
-    writeInbox(config.dataDir, stillOpen);
-  }
 }
 
 export { formatReviewAssignmentMessage };

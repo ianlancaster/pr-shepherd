@@ -48,6 +48,7 @@ const DEFAULTS: ShepherdConfig = {
     ignoreRepos: [],
     ignoreDrafts: true,
     maxAgeDays: 5,
+    waitForBot: null,
   },
 
   reviewFollowUp: {
