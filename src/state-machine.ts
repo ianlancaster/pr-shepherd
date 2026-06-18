@@ -18,8 +18,8 @@ const transitions: Record<PRState, TransitionTable> = {
   CI_PASSED: {
     review_posted: "AWAITING_REVIEW",
     all_approved: "APPROVED",
-    // No reviews required or all already approved before CI finished
     changes_requested: "CHANGES_REQUESTED",
+    ci_failed: "CI_FAILED",
     closed: "CLOSED",
   },
   CI_FAILED: {
@@ -31,6 +31,7 @@ const transitions: Record<PRState, TransitionTable> = {
     changes_requested: "CHANGES_REQUESTED",
     all_approved: "APPROVED",
     review_posted: "AWAITING_REVIEW",
+    ci_failed: "CI_FAILED",
     stale_detected: "STALE",
     closed: "CLOSED",
   },
@@ -54,6 +55,7 @@ const transitions: Record<PRState, TransitionTable> = {
   STALE: {
     review_requested: "AWAITING_REVIEW",
     review_posted: "AWAITING_REVIEW",
+    ci_failed: "CI_FAILED",
     changes_requested: "CHANGES_REQUESTED",
     all_approved: "APPROVED",
     new_commit: "CI_PENDING",

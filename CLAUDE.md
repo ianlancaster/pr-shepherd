@@ -15,7 +15,16 @@ A single long-running Node.js process with two polling loops on a shared interva
    - **PR stale** (awaiting review past threshold) → notifies the agent
    - **PR merged or closed** → cleans up state cache, sends confirmation
 
-2. **Review inbox** — `gh search prs --review-requested=<user>` discovers incoming review assignments. Filters by age (`maxAgeDays`), draft status, repos, and whether the user has already submitted a review. Sends new assignments to the configured agent.
+2. **Review inbox** — `gh search prs --review-requested=<user>` discovers incoming review assignments. Full lifecycle tracking:
+   - **`waitForBot` gate** — if configured, holds dispatch until a bot (e.g. Canary) posts its review. If the bot auto-approves (no "Review Required", no ❌), skips human review entirely.
+   - **Dispatch** → notifies the agent to assign a worker for review
+   - **Merged before review** → if PR merges before our review is posted, notifies the agent to free the worker
+   - **Review submitted** → if our review is posted, notifies the agent to free the worker
+   - Filters by age (`maxAgeDays`), draft status, repos, and whether the user already reviewed
+
+3. **Review follow-up** — tracks PRs where we left `CHANGES_REQUESTED` reviews. When the author pushes new commits, notifies the agent for a scoped re-review (only check previously raised issues, no new findings). Stops on approval.
+
+4. **Reviewer nudge** — when a worker pushes fixes on an authored PR that had `CHANGES_REQUESTED` reviews, posts a GitHub @mention to the reviewer. Escalates to the agent after configurable hours (business days only) if no response.
 
 Communication is via HTTP POST to a conductor MCP endpoint (`send_to_agent`). If no conductor is configured, messages go to stdout.
 

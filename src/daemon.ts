@@ -256,6 +256,17 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
       pr.state === "AWAITING_REVIEW" ||
       pr.state === "STALE"
     ) {
+      const ciRecheck = evaluateChecks(checks, config);
+      if (ciRecheck.status === "fail") {
+        const details = { failedChecks: ciRecheck.failed };
+        tryTransition(config, pr, "ci_failed", details);
+        await handleTransition(config, pr, "CI_FAILED", details);
+      }
+
+      const currentState = pr.state as string;
+      if (isTerminal(pr.state) || currentState === "CI_FAILED" || currentState === "CI_PENDING") {
+        // CI regressed or PR closed — skip review processing
+      } else {
       const reviewResult = evaluateReviews(reviews, config);
 
       if (reviewResult.status === "changes_requested") {
@@ -346,6 +357,7 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
           tryTransition(config, pr, "stale_detected", details);
           await handleTransition(config, pr, "STALE", details);
         }
+      }
       }
     }
 

@@ -159,8 +159,8 @@ describe("state-machine", () => {
       expect(transition("CI_FAILED", "all_approved")).toBeNull();
     });
 
-    it("AWAITING_REVIEW + ci_failed → null", () => {
-      expect(transition("AWAITING_REVIEW", "ci_failed")).toBeNull();
+    it("AWAITING_REVIEW + ci_failed → CI_FAILED (late CI regression)", () => {
+      expect(transition("AWAITING_REVIEW", "ci_failed")).toBe("CI_FAILED");
     });
   });
 
