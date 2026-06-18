@@ -210,13 +210,25 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
     }
 
     if (pr.state === "CI_PENDING") {
-      const checkResult = evaluateChecks(checks, config);
-      if (checkResult.status === "pass") {
-        tryTransition(config, pr, "ci_passed");
-      } else if (checkResult.status === "fail") {
-        const details = { failedChecks: checkResult.failed };
-        tryTransition(config, pr, "ci_failed", details);
-        await handleTransition(config, pr, "CI_FAILED", details);
+      if (prView.autoMergeRequest && prView.mergeStateStatus === "BEHIND" && prView.mergeable === "MERGEABLE") {
+        log(`PR #${pr.number} is behind base branch while CI is running — updating branch now (CI will restart).`);
+        if (!config.dryRun) {
+          try {
+            updateBranch(pr.number, pr.repo);
+            log(`Branch updated for PR #${pr.number}.`);
+          } catch (err) {
+            log(`Failed to update branch for PR #${pr.number}: ${(err as Error).message}`);
+          }
+        }
+      } else {
+        const checkResult = evaluateChecks(checks, config);
+        if (checkResult.status === "pass") {
+          tryTransition(config, pr, "ci_passed");
+        } else if (checkResult.status === "fail") {
+          const details = { failedChecks: checkResult.failed };
+          tryTransition(config, pr, "ci_failed", details);
+          await handleTransition(config, pr, "CI_FAILED", details);
+        }
       }
     }
 
