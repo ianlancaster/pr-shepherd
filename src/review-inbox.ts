@@ -92,9 +92,7 @@ function botAutoApproved(number: number, repo: string, botUsername: string): boo
   const comments = fetchBotComments(number, repo, [botUsername]);
   if (comments.length === 0) return false;
   const latest = comments[comments.length - 1];
-  const hasReviewRequired = /Review Required/i.test(latest.body) || /👥\s*Review Required/i.test(latest.body);
-  const hasActionableFindings = latest.hasActionableFindings;
-  return !hasReviewRequired && !hasActionableFindings;
+  return /###\s*✅\s*Auto-approved/i.test(latest.body);
 }
 
 export function fetchReviewRequests(githubUser: string): RawSearchResult[] {
