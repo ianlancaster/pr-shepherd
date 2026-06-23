@@ -210,7 +210,7 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
     }
 
     if (pr.state === "CI_PENDING") {
-      if (prView.autoMergeRequest && prView.mergeStateStatus === "BEHIND" && prView.mergeable === "MERGEABLE") {
+      if (!config.github.mergeQueue && prView.autoMergeRequest && prView.mergeStateStatus === "BEHIND" && prView.mergeable === "MERGEABLE") {
         log(`PR #${pr.number} is behind base branch while CI is running — updating branch now (CI will restart).`);
         if (!config.dryRun) {
           try {
@@ -244,7 +244,11 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
         await handleTransition(config, pr, "CI_FAILED", details);
       }
 
-      if (prView.mergeStateStatus === "BEHIND") {
+      if (prView.mergeable === "CONFLICTING") {
+        const msg = `[PR Shepherd] PR #${pr.number} (${pr.repo}) — Merge conflicts detected. Please resolve conflicts manually.`;
+        log(`PR #${pr.number} has merge conflicts — escalating.`);
+        if (!config.dryRun) await sendToAgent(config, config.notifications.notifyAgent!, msg);
+      } else if (prView.mergeStateStatus === "BEHIND" && !config.github.mergeQueue) {
         if (prView.mergeable === "MERGEABLE") {
           log(`PR #${pr.number} is behind base branch — updating branch.`);
           if (!config.dryRun) {
@@ -255,10 +259,6 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
               log(`Failed to update branch for PR #${pr.number}: ${(err as Error).message}`);
             }
           }
-        } else if (prView.mergeable === "CONFLICTING") {
-          const msg = `[PR Shepherd] PR #${pr.number} (${pr.repo}) — Merge conflicts detected. Auto-merge is enabled but the branch cannot be updated automatically. Please resolve conflicts manually.`;
-          log(`PR #${pr.number} has merge conflicts — escalating.`);
-          if (!config.dryRun) await sendToAgent(config, config.notifications.notifyAgent!, msg);
         }
       }
     }
