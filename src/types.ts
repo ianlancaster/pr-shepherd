@@ -42,6 +42,7 @@ export type WatchedPR = {
   lastEventAt: string | null;
   lastBotCommentNotifiedAt: string | null;
   botFeedbackCount: number;
+  lastConflictNotifiedAt: string | null;
 };
 
 export type PREventRecord = {

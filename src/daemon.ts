@@ -244,10 +244,18 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
         await handleTransition(config, pr, "CI_FAILED", details);
       }
 
-      if (prView.mergeable === "CONFLICTING") {
+      if (prView.mergeable === "CONFLICTING" && !pr.lastConflictNotifiedAt) {
         const msg = `[PR Shepherd] PR #${pr.number} (${pr.repo}) — Merge conflicts detected. Please resolve conflicts manually.`;
         log(`PR #${pr.number} has merge conflicts — escalating.`);
-        if (!config.dryRun) await sendToAgent(config, config.notifications.notifyAgent!, msg);
+        if (!config.dryRun) {
+          await sendToAgent(config, config.notifications.notifyAgent!, msg);
+        }
+        pr.lastConflictNotifiedAt = now();
+        upsertCachedPR(config.dataDir, pr);
+        emitEvent(config, pr, "ci_failed", pr.state, { conflicting: true });
+      } else if (prView.mergeable !== "CONFLICTING" && pr.lastConflictNotifiedAt) {
+        pr.lastConflictNotifiedAt = null;
+        upsertCachedPR(config.dataDir, pr);
       } else if (prView.mergeStateStatus === "BEHIND" && !config.github.mergeQueue) {
         if (prView.mergeable === "MERGEABLE") {
           log(`PR #${pr.number} is behind base branch — updating branch.`);
@@ -408,6 +416,7 @@ export async function pollAll(config: ShepherdConfig): Promise<void> {
       lastEventAt: null,
       lastBotCommentNotifiedAt: null,
       botFeedbackCount: 0,
+      lastConflictNotifiedAt: null,
     };
 
     await pollPR(config, pr);
