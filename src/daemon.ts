@@ -10,6 +10,7 @@ import {
   enableAutoMerge,
   updateBranch,
   fetchBotComments,
+  fetchSubstantiveComments,
 } from "./github.js";
 import { readCache, upsertCachedPR, removeCachedPR, getCachedPR } from "./state-cache.js";
 import { appendEvent } from "./events.js";
@@ -124,7 +125,14 @@ async function handleTransition(
       }
       case "APPROVED": {
         const approvals = (details.approvals as number) ?? 0;
-        const msg = formatApprovalMessage(pr.number, pr.repo, approvals);
+        const reviewBodies = (details.approvalBodies as Array<{ reviewer: string; body: string }>) ?? [];
+        let msg = formatApprovalMessage(pr.number, pr.repo, approvals);
+        if (reviewBodies.length > 0) {
+          const feedback = reviewBodies
+            .map((r) => `**${r.reviewer}** (approved with feedback):\n${r.body}`)
+            .join("\n\n---\n\n");
+          msg += "\n\nHowever, reviewers left feedback that should still be addressed:\n\n" + feedback;
+        }
         log(`Enabling auto-merge for PR #${pr.number}`);
         if (!config.dryRun) {
           try {
@@ -295,11 +303,17 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
         tryTransition(config, pr, "changes_requested", details);
         await handleTransition(config, pr, "CHANGES_REQUESTED", details);
       } else if (reviewResult.status === "approved") {
+        const details = {
+          approvals: reviewResult.approvals,
+          approvalBodies: reviewResult.approvalBodies,
+        };
         if (prView.autoMergeRequest) {
-          tryTransition(config, pr, "all_approved", { approvals: reviewResult.approvals });
+          tryTransition(config, pr, "all_approved", details);
           tryTransition(config, pr, "auto_merge_enabled");
+          if (reviewResult.approvalBodies.length > 0) {
+            await handleTransition(config, pr, "APPROVED", details);
+          }
         } else {
-          const details = { approvals: reviewResult.approvals };
           tryTransition(config, pr, "all_approved", details);
           await handleTransition(config, pr, "APPROVED", details);
         }
@@ -381,6 +395,30 @@ export async function pollPR(config: ShepherdConfig, pr: WatchedPR): Promise<voi
       }
     }
 
+    const substantiveComments = fetchSubstantiveComments(
+      pr.number,
+      pr.repo,
+      config.reviews.ignoreUsers,
+      config.reviews.botUsers,
+      pr.lastCommentNotifiedAt ?? undefined,
+    );
+    if (substantiveComments.length > 0) {
+      for (const comment of substantiveComments) {
+        const msg = [
+          `[PR Shepherd] PR #${pr.number} (${pr.repo}) — Comment from ${comment.author}`,
+          "",
+          comment.body,
+          "",
+          "This comment was posted on your PR. Please review and address if needed.",
+        ].join("\n");
+        log(`Substantive comment from ${comment.author} on PR #${pr.number}`);
+        if (!config.dryRun) {
+          await sendToAgent(config, config.notifications.notifyAgent!, msg);
+        }
+      }
+      pr.lastCommentNotifiedAt = substantiveComments[substantiveComments.length - 1].createdAt;
+    }
+
     pr.lastCheckedAt = now();
     upsertCachedPR(config.dataDir, pr);
   } catch (err) {
@@ -417,6 +455,7 @@ export async function pollAll(config: ShepherdConfig): Promise<void> {
       lastBotCommentNotifiedAt: null,
       botFeedbackCount: 0,
       lastConflictNotifiedAt: null,
+      lastCommentNotifiedAt: null,
     };
 
     await pollPR(config, pr);

@@ -128,6 +128,42 @@ export function fetchBotComments(
     }));
 }
 
+export function fetchSubstantiveComments(
+  number: number,
+  repo: string,
+  ignoreUsers: string[],
+  botUsers: string[],
+  since?: string,
+): Array<{ author: string; body: string; createdAt: string }> {
+  const [owner, name] = repo.split("/");
+  const json = gh([
+    "api",
+    `repos/${owner}/${name}/issues/${number}/comments`,
+    "--jq",
+    ".",
+  ]);
+  const comments = JSON.parse(json) as Array<{
+    user: { login: string };
+    body: string;
+    created_at: string;
+  }>;
+
+  const ignoreSet = new Set([
+    ...ignoreUsers.map((u) => u.toLowerCase()),
+    ...botUsers.map((u) => u.toLowerCase()),
+  ]);
+
+  return comments
+    .filter((c) => !ignoreSet.has(c.user.login.toLowerCase()))
+    .filter((c) => c.body.trim().length > 50)
+    .filter((c) => !since || c.created_at > since)
+    .map((c) => ({
+      author: c.user.login,
+      body: c.body,
+      createdAt: c.created_at,
+    }));
+}
+
 export function fetchCommits(
   number: number,
   repo: string,
@@ -241,6 +277,7 @@ export function evaluateReviews(reviews: ReviewData[], config: ShepherdConfig): 
   status: "approved" | "changes_requested" | "pending";
   approvals: number;
   changesRequested: ReviewData[];
+  approvalBodies: Array<{ reviewer: string; body: string }>;
 } {
   const latestByAuthor = new Map<string, ReviewData>();
   for (const review of reviews) {
@@ -251,18 +288,22 @@ export function evaluateReviews(reviews: ReviewData[], config: ShepherdConfig): 
   }
 
   const latest = [...latestByAuthor.values()];
-  const approvals = latest.filter((r) => r.state === "APPROVED").length;
+  const approved = latest.filter((r) => r.state === "APPROVED");
+  const approvals = approved.length;
   const changesRequested = latest.filter(
     (r) => r.state === "CHANGES_REQUESTED",
   );
+  const approvalBodies = approved
+    .filter((r) => r.body.trim().length > 20)
+    .map((r) => ({ reviewer: r.author, body: r.body }));
 
   if (changesRequested.length > 0) {
-    return { status: "changes_requested", approvals, changesRequested };
+    return { status: "changes_requested", approvals, changesRequested, approvalBodies: [] };
   }
   if (approvals >= config.requiredApprovals) {
-    return { status: "approved", approvals, changesRequested: [] };
+    return { status: "approved", approvals, changesRequested: [], approvalBodies };
   }
-  return { status: "pending", approvals, changesRequested: [] };
+  return { status: "pending", approvals, changesRequested: [], approvalBodies: [] };
 }
 
 export function buildSnapshot(
